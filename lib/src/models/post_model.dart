@@ -1,5 +1,4 @@
 class PostModel {
-
   int? id;
   int? userId;
 
@@ -12,9 +11,11 @@ class PostModel {
 
   DateTime? createdAt;
 
-  List<String>? images;
+  List<String> images;
+  List<int> tagPeople;
 
-  List<int>? tagPeople;
+  int likeCount;
+  bool isLiked;
 
   PostModel({
     this.id,
@@ -25,47 +26,64 @@ class PostModel {
     this.fullName,
     this.profileImage,
     this.createdAt,
-    this.images,
-    this.tagPeople,
+    this.images = const [],
+    this.tagPeople = const [],
+    this.likeCount = 0,
+    this.isLiked = false,
   });
 
   factory PostModel.fromJson(
-      Map<String, dynamic> json) {
-
+      Map<String, dynamic> json,
+      ) {
     return PostModel(
-
-      id: json['id'],
-
-      userId: json['userId'],
-
-      caption: json['caption'],
-
-      addLocation:
-      json['addLocation'],
-
-      userName:
-      json['userName'],
-
-      fullName:
-      json['fullName'],
-
+      id: _toInt(json['id']),
+      userId: _toInt(json['userId']),
+      caption: json['caption']?.toString(),
+      addLocation: json['addLocation']?.toString(),
+      userName: json['userName']?.toString(),
+      fullName: json['fullName']?.toString(),
       profileImage:
-      json['profileImage'],
-
-      createdAt:
-      DateTime.parse(
-        json['createdAt'],
+      json['profileImage']?.toString(),
+      createdAt: DateTime.tryParse(
+        json['createdAt']?.toString() ?? '',
       ),
-
-      images:
-      List<String>.from(
-        json['images'] ?? [],
-      ),
-
+      images: (json['images'] as List<dynamic>? ?? [])
+          .map((item) => item.toString())
+          .toList(),
       tagPeople:
-      List<int>.from(
-        json['tagPeople'] ?? [],
+      (json['tagPeople'] as List<dynamic>? ?? [])
+          .map(_toInt)
+          .toList(),
+      likeCount: _toInt(
+        json['likeCount'],
+      ),
+      isLiked: _toBool(
+        json['isLiked'],
       ),
     );
+  }
+
+  static int _toInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+
+    return int.tryParse(
+      value?.toString() ?? '',
+    ) ??
+        0;
+  }
+
+  static bool _toBool(dynamic value) {
+    if (value is bool) {
+      return value;
+    }
+
+    if (value is int) {
+      return value == 1;
+    }
+
+    return value?.toString().toLowerCase() ==
+        'true';
   }
 }

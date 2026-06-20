@@ -2,39 +2,37 @@ import 'package:flutter/material.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:provider/provider.dart';
 import 'package:social_stream/src/constants/colors.dart';
+import 'package:social_stream/src/models/like_model.dart';
 import 'package:social_stream/src/provider/user_detail_provider.dart';
 import 'package:social_stream/src/services/like_provider.dart';
 import 'package:social_stream/src/widgets/app_snack_bar.dart';
 
 class PostCardWidget extends StatefulWidget {
-  // POST ID
   final int postId;
 
-  // USER
   final String userName;
   final String userUsername;
   final String userImage;
 
-  // POST
   final String caption;
   final String location;
+
   final List<String> postImages;
 
-  // COUNTS
-  final String likes;
+  final int likes;
   final String comments;
   final String shares;
 
-  // STATES
   final bool isVerified;
   final bool isLiked;
   final bool isBookmarked;
 
-  // CALLBACKS
   final VoidCallback? onMoreTap;
 
-  /// Like API successful hone ke baad call hoga.
-  final VoidCallback? onLikeTap;
+  final void Function(
+      bool isLiked,
+      int likeCount,
+      )? onLikeChanged;
 
   final VoidCallback? onCommentTap;
   final VoidCallback? onShareTap;
@@ -49,28 +47,31 @@ class PostCardWidget extends StatefulWidget {
     required this.postImages,
     this.caption = '',
     this.location = '',
-    this.likes = '0',
+    this.likes = 0,
     this.comments = '0',
     this.shares = '0',
     this.isVerified = true,
     this.isLiked = false,
     this.isBookmarked = false,
     this.onMoreTap,
-    this.onLikeTap,
+    this.onLikeChanged,
     this.onCommentTap,
     this.onShareTap,
     this.onBookmarkTap,
   });
 
   @override
-  State<PostCardWidget> createState() => _PostCardWidgetState();
+  State<PostCardWidget> createState() =>
+      _PostCardWidgetState();
 }
 
-class _PostCardWidgetState extends State<PostCardWidget> {
+class _PostCardWidgetState
+    extends State<PostCardWidget> {
   late final PageController _pageController;
 
   late bool _isLiked;
   late bool _isBookmarked;
+  late int _likeCount;
 
   int _currentImageIndex = 0;
 
@@ -82,21 +83,30 @@ class _PostCardWidgetState extends State<PostCardWidget> {
 
     _isLiked = widget.isLiked;
     _isBookmarked = widget.isBookmarked;
+    _likeCount = widget.likes;
   }
 
   @override
-  void didUpdateWidget(covariant PostCardWidget oldWidget) {
+  void didUpdateWidget(
+      covariant PostCardWidget oldWidget,
+      ) {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.isLiked != widget.isLiked) {
       _isLiked = widget.isLiked;
     }
 
-    if (oldWidget.isBookmarked != widget.isBookmarked) {
+    if (oldWidget.likes != widget.likes) {
+      _likeCount = widget.likes;
+    }
+
+    if (oldWidget.isBookmarked !=
+        widget.isBookmarked) {
       _isBookmarked = widget.isBookmarked;
     }
 
-    if (_currentImageIndex >= widget.postImages.length) {
+    if (_currentImageIndex >=
+        widget.postImages.length) {
       _currentImageIndex = 0;
 
       if (_pageController.hasClients) {
@@ -112,21 +122,21 @@ class _PostCardWidgetState extends State<PostCardWidget> {
   }
 
   // =========================================================
-  // LIKE POST
+  // LIKE / UNLIKE
   // =========================================================
 
   Future<void> _handleLikeTap() async {
-    final likeProvider = context.read<LikeProvider>();
+    final LikeProvider likeProvider =
+    context.read<LikeProvider>();
 
-    if (likeProvider.isPostLikeLoading(widget.postId)) {
+    if (likeProvider.isPostLikeLoading(
+      widget.postId,
+    )) {
       return;
     }
 
-    if (_isLiked) {
-      return;
-    }
-
-    final userProvider = context.read<UserDetailProvider>();
+    final UserDetailProvider userProvider =
+    context.read<UserDetailProvider>();
 
     final String token =
         userProvider.user?.token?.trim() ?? '';
@@ -134,41 +144,64 @@ class _PostCardWidgetState extends State<PostCardWidget> {
     if (token.isEmpty) {
       AppSnackBar.showError(
         context,
-        message: 'Your session has expired. Please log in again.',
+        message:
+        'Your session has expired. Please log in again.',
       );
+
       return;
     }
 
+    final bool previousIsLiked = _isLiked;
+    final int previousLikeCount = _likeCount;
+
+    final bool nextIsLiked = !_isLiked;
+
     // Optimistic UI update
     setState(() {
-      _isLiked = true;
+      _isLiked = nextIsLiked;
+
+      if (nextIsLiked) {
+        _likeCount++;
+      } else {
+        _likeCount =
+        _likeCount > 0 ? _likeCount - 1 : 0;
+      }
     });
 
-    final bool success = await likeProvider.likePost(
+    final LikeModel? result =
+    await likeProvider.likePost(
       postId: widget.postId,
       token: token,
     );
 
     if (!mounted) return;
 
-    if (!success) {
-      // API fail ho to previous state restore.
+    if (result == null) {
       setState(() {
-        _isLiked = false;
+        _isLiked = previousIsLiked;
+        _likeCount = previousLikeCount;
       });
 
       AppSnackBar.showError(
         context,
         message:
         likeProvider.errorMessage ??
-            'Failed to like the post. Please try again.',
+            'Failed to update post like.',
       );
 
       return;
     }
 
-    // Parent ko successful like ka callback.
-    widget.onLikeTap?.call();
+    // Backend actual state
+    setState(() {
+      _isLiked = result.isLiked;
+      _likeCount = result.likeCount;
+    });
+
+    widget.onLikeChanged?.call(
+      result.isLiked,
+      result.likeCount,
+    );
   }
 
   // =========================================================
@@ -184,8 +217,28 @@ class _PostCardWidgetState extends State<PostCardWidget> {
   }
 
   // =========================================================
-  // BUILD
+  // COUNT FORMAT
   // =========================================================
+
+  String _formatCount(int count) {
+    if (count >= 1000000) {
+      final double value = count / 1000000;
+
+      return value == value.truncateToDouble()
+          ? '${value.toStringAsFixed(0)}M'
+          : '${value.toStringAsFixed(1)}M';
+    }
+
+    if (count >= 1000) {
+      final double value = count / 1000;
+
+      return value == value.truncateToDouble()
+          ? '${value.toStringAsFixed(0)}K'
+          : '${value.toStringAsFixed(1)}K';
+    }
+
+    return count.toString();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -225,7 +278,7 @@ class _PostCardWidgetState extends State<PostCardWidget> {
   }
 
   // =========================================================
-  // POST HEADER
+  // HEADER
   // =========================================================
 
   Widget _buildPostHeader(TextTheme textTheme) {
@@ -237,7 +290,6 @@ class _PostCardWidgetState extends State<PostCardWidget> {
         12,
       ),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           _buildProfileImage(),
 
@@ -288,6 +340,7 @@ class _PostCardWidgetState extends State<PostCardWidget> {
 
                 if (widget.location.trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
+
                   Row(
                     children: [
                       Icon(
@@ -316,16 +369,13 @@ class _PostCardWidgetState extends State<PostCardWidget> {
             ),
           ),
 
-          Tooltip(
-            message: 'More options',
-            child: IconButton(
-              onPressed: widget.onMoreTap,
-              splashRadius: 22,
-              icon: const Icon(
-                Icons.more_horiz_rounded,
-                size: 25,
-                color: Colors.black87,
-              ),
+          IconButton(
+            onPressed: widget.onMoreTap,
+            splashRadius: 22,
+            icon: const Icon(
+              Icons.more_horiz_rounded,
+              size: 25,
+              color: Colors.black87,
             ),
           ),
         ],
@@ -357,20 +407,17 @@ class _PostCardWidgetState extends State<PostCardWidget> {
           width: 46,
           height: 46,
           fit: BoxFit.cover,
-          filterQuality: FilterQuality.medium,
           loadingBuilder: (
               BuildContext context,
               Widget child,
-              ImageChunkEvent? loadingProgress,
+              ImageChunkEvent? progress,
               ) {
-            if (loadingProgress == null) {
+            if (progress == null) {
               return child;
             }
 
-            return Container(
-              color: Colors.grey.shade100,
-              alignment: Alignment.center,
-              child: const SizedBox(
+            return const Center(
+              child: SizedBox(
                 width: 17,
                 height: 17,
                 child: CircularProgressIndicator(
@@ -435,7 +482,6 @@ class _PostCardWidgetState extends State<PostCardWidget> {
               text: '${widget.userUsername} ',
               style: textTheme.bodyMedium?.copyWith(
                 color: Colors.black87,
-                fontSize: 14,
                 fontWeight: FontWeight.w700,
                 height: 1.45,
               ),
@@ -443,9 +489,7 @@ class _PostCardWidgetState extends State<PostCardWidget> {
             TextSpan(
               text: widget.caption.trim(),
               style: textTheme.bodyMedium?.copyWith(
-                color: Colors.black.withOpacity(0.78),
-                fontSize: 14,
-                fontWeight: FontWeight.w400,
+                color: Colors.black87,
                 height: 1.45,
               ),
             ),
@@ -456,7 +500,7 @@ class _PostCardWidgetState extends State<PostCardWidget> {
   }
 
   // =========================================================
-  // POST IMAGE SLIDER
+  // POST IMAGES
   // =========================================================
 
   Widget _buildPostImages() {
@@ -468,7 +512,6 @@ class _PostCardWidgetState extends State<PostCardWidget> {
           child: PageView.builder(
             controller: _pageController,
             itemCount: widget.postImages.length,
-            allowImplicitScrolling: true,
             physics: const BouncingScrollPhysics(),
             onPageChanged: (int index) {
               setState(() {
@@ -479,8 +522,39 @@ class _PostCardWidgetState extends State<PostCardWidget> {
                 BuildContext context,
                 int index,
                 ) {
-              return _buildNetworkPostImage(
+              return Image.network(
                 widget.postImages[index],
+                width: double.infinity,
+                fit: BoxFit.cover,
+                loadingBuilder: (
+                    BuildContext context,
+                    Widget child,
+                    ImageChunkEvent? progress,
+                    ) {
+                  if (progress == null) {
+                    return child;
+                  }
+
+                  return const Center(
+                    child: CircularProgressIndicator(
+                      color: AppColors.primary,
+                    ),
+                  );
+                },
+                errorBuilder: (
+                    BuildContext context,
+                    Object error,
+                    StackTrace? stackTrace,
+                    ) {
+                  return Container(
+                    color: Colors.grey.shade200,
+                    alignment: Alignment.center,
+                    child: const Icon(
+                      Icons.broken_image_outlined,
+                      size: 42,
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -490,172 +564,75 @@ class _PostCardWidgetState extends State<PostCardWidget> {
           Positioned(
             top: 12,
             right: 12,
-            child: _buildImageCounter(),
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 5,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(30),
+              ),
+              child: Text(
+                '${_currentImageIndex + 1}/'
+                    '${widget.postImages.length}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           ),
 
         if (widget.postImages.length > 1)
           Positioned(
             bottom: 12,
-            child: _buildPageIndicator(),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: List.generate(
+                widget.postImages.length,
+                    (int index) {
+                  final bool selected =
+                      index == _currentImageIndex;
+
+                  return AnimatedContainer(
+                    duration: const Duration(
+                      milliseconds: 250,
+                    ),
+                    margin: const EdgeInsets.symmetric(
+                      horizontal: 3,
+                    ),
+                    width: selected ? 16 : 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: selected
+                          ? Colors.white
+                          : Colors.white54,
+                      borderRadius:
+                      BorderRadius.circular(20),
+                    ),
+                  );
+                },
+              ),
+            ),
           ),
       ],
     );
   }
 
-  Widget _buildNetworkPostImage(String imageUrl) {
-    if (imageUrl.trim().isEmpty) {
-      return _buildPostImageError();
-    }
-
-    return Image.network(
-      imageUrl,
-      width: double.infinity,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.medium,
-      loadingBuilder: (
-          BuildContext context,
-          Widget child,
-          ImageChunkEvent? loadingProgress,
-          ) {
-        if (loadingProgress == null) {
-          return child;
-        }
-
-        final int? expectedBytes =
-            loadingProgress.expectedTotalBytes;
-
-        final int loadedBytes =
-            loadingProgress.cumulativeBytesLoaded;
-
-        final double? progress = expectedBytes != null
-            ? loadedBytes / expectedBytes
-            : null;
-
-        return Container(
-          color: Colors.grey.shade100,
-          alignment: Alignment.center,
-          child: SizedBox(
-            width: 28,
-            height: 28,
-            child: CircularProgressIndicator(
-              value: progress,
-              strokeWidth: 2.2,
-              color: AppColors.primary,
-              backgroundColor: Colors.grey.shade300,
-            ),
-          ),
-        );
-      },
-      errorBuilder: (
-          BuildContext context,
-          Object error,
-          StackTrace? stackTrace,
-          ) {
-        return _buildPostImageError();
-      },
-    );
-  }
-
-  Widget _buildPostImageError() {
-    return Container(
-      width: double.infinity,
-      color: Colors.grey.shade100,
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.broken_image_outlined,
-            size: 42,
-            color: Colors.grey.shade500,
-          ),
-
-          const SizedBox(height: 8),
-
-          Text(
-            'Unable to load image',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImageCounter() {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 5,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.62),
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Text(
-        '${_currentImageIndex + 1}/${widget.postImages.length}',
-        style: const TextStyle(
-          color: Colors.white,
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildPageIndicator() {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 6,
-      ),
-      decoration: BoxDecoration(
-        color: Colors.black.withOpacity(0.18),
-        borderRadius: BorderRadius.circular(30),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: List.generate(
-          widget.postImages.length,
-              (int index) {
-            final bool isSelected =
-                _currentImageIndex == index;
-
-            return AnimatedContainer(
-              duration: const Duration(
-                milliseconds: 250,
-              ),
-              curve: Curves.easeOut,
-              margin: const EdgeInsets.symmetric(
-                horizontal: 2.5,
-              ),
-              width: isSelected ? 16 : 6,
-              height: 6,
-              decoration: BoxDecoration(
-                color: isSelected
-                    ? Colors.white
-                    : Colors.white.withOpacity(0.55),
-                borderRadius: BorderRadius.circular(20),
-              ),
-            );
-          },
-        ),
-      ),
-    );
-  }
-
   // =========================================================
-  // ACTION SECTION
+  // ACTIONS
   // =========================================================
 
   Widget _buildActionSection() {
-    final likeProvider = context.watch<LikeProvider>();
+    final LikeProvider likeProvider =
+    context.watch<LikeProvider>();
 
     final bool isLikeLoading =
-    likeProvider.isPostLikeLoading(widget.postId);
+    likeProvider.isPostLikeLoading(
+      widget.postId,
+    );
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(
@@ -670,22 +647,19 @@ class _PostCardWidgetState extends State<PostCardWidget> {
             icon: _isLiked
                 ? Icons.favorite_rounded
                 : Iconsax.heart,
-            label: widget.likes,
-            color: _isLiked
-                ? Colors.red
-                : Colors.black87,
-            tooltip: _isLiked ? 'Liked' : 'Like',
-            isLoading: isLikeLoading,
+            label: _formatCount(_likeCount),
+            color:
+            _isLiked ? Colors.red : Colors.black87,
             onTap: isLikeLoading
                 ? null
                 : _handleLikeTap,
+            isLoading: isLikeLoading,
           ),
 
           _buildActionButton(
             icon: Iconsax.message,
             label: widget.comments,
             color: Colors.black87,
-            tooltip: 'Comments',
             onTap: widget.onCommentTap,
           ),
 
@@ -693,49 +667,20 @@ class _PostCardWidgetState extends State<PostCardWidget> {
             icon: Iconsax.send_2,
             label: widget.shares,
             color: Colors.black87,
-            tooltip: 'Share',
             onTap: widget.onShareTap,
           ),
 
           const Spacer(),
 
-          Tooltip(
-            message: _isBookmarked
-                ? 'Remove bookmark'
-                : 'Save post',
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: _handleBookmarkTap,
-                borderRadius: BorderRadius.circular(30),
-                child: Padding(
-                  padding: const EdgeInsets.all(9),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(
-                      milliseconds: 180,
-                    ),
-                    transitionBuilder: (
-                        Widget child,
-                        Animation<double> animation,
-                        ) {
-                      return ScaleTransition(
-                        scale: animation,
-                        child: child,
-                      );
-                    },
-                    child: Icon(
-                      _isBookmarked
-                          ? Icons.bookmark_rounded
-                          : Icons.bookmark_border_rounded,
-                      key: ValueKey<bool>(_isBookmarked),
-                      size: 25,
-                      color: _isBookmarked
-                          ? AppColors.primary
-                          : Colors.black87,
-                    ),
-                  ),
-                ),
-              ),
+          IconButton(
+            onPressed: _handleBookmarkTap,
+            icon: Icon(
+              _isBookmarked
+                  ? Icons.bookmark_rounded
+                  : Icons.bookmark_border_rounded,
+              color: _isBookmarked
+                  ? AppColors.primary
+                  : Colors.black87,
             ),
           ),
         ],
@@ -747,69 +692,49 @@ class _PostCardWidgetState extends State<PostCardWidget> {
     required IconData icon,
     required String label,
     required Color color,
-    required String tooltip,
     required VoidCallback? onTap,
     bool isLoading = false,
   }) {
-    return Tooltip(
-      message: tooltip,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(30),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 8,
-              vertical: 9,
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (isLoading)
-                  const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2,
-                      color: AppColors.primary,
-                    ),
-                  )
-                else
-                  AnimatedSwitcher(
-                    duration: const Duration(
-                      milliseconds: 180,
-                    ),
-                    transitionBuilder: (
-                        Widget child,
-                        Animation<double> animation,
-                        ) {
-                      return ScaleTransition(
-                        scale: animation,
-                        child: child,
-                      );
-                    },
-                    child: Icon(
-                      icon,
-                      key: ValueKey<IconData>(icon),
-                      size: 22,
-                      color: color,
-                    ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(30),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 8,
+            vertical: 9,
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (isLoading)
+                const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppColors.primary,
                   ),
+                )
+              else
+                Icon(
+                  icon,
+                  size: 22,
+                  color: color,
+                ),
 
-                if (label.trim().isNotEmpty) ...[
-                  const SizedBox(width: 6),
-                  Text(
-                    label,
-                    style: const TextStyle(
-                      color: Colors.black87,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ],
-            ),
+              const SizedBox(width: 6),
+
+              Text(
+                label,
+                style: const TextStyle(
+                  color: Colors.black87,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ),
         ),
       ),

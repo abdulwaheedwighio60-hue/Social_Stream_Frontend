@@ -3,9 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 import 'package:provider/provider.dart';
+import 'package:social_stream/src/helpers/image_helper.dart';
 import 'package:social_stream/src/models/user_model.dart';
 import 'package:social_stream/src/provider/user_detail_provider.dart';
+import 'dart:async';
 
 class UserAuthentication extends ChangeNotifier {
 
@@ -35,183 +39,235 @@ class UserAuthentication extends ChangeNotifier {
   // =====================================================
 
   Future<Map<String, dynamic>> registerUser({
-
     required String userName,
-
     required String email,
-
     required String password,
-
     String? fullName,
-
     String? phoneNumber,
-
     String? bio,
-
     File? profileImage,
-
   }) async {
-
     try {
-
       _setLoading(true);
 
-      // =====================================
-      // MULTIPART REQUEST
-      // =====================================
-
-      var request = http.MultipartRequest(
+      final http.MultipartRequest request =
+      http.MultipartRequest(
         'POST',
         Uri.parse(registrationUrl),
       );
 
-      // =====================================
-      // TEXT FIELDS
-      // =====================================
+      request.fields.addAll(
+        <String, String>{
+          'UserName': userName.trim(),
+          'Email': email.trim(),
+          'Password': password.trim(),
+          'FullName': (fullName ?? '').trim(),
+          'PhoneNumber': (phoneNumber ?? '').trim(),
+          'Bio': (bio ?? '').trim(),
+        },
+      );
 
-      request.fields['UserName'] =
-          userName.trim();
-
-      request.fields['Email'] =
-          email.trim();
-
-      request.fields['Password'] =
-          password.trim();
-
-      request.fields['FullName'] =
-          (fullName ?? '').trim();
-
-      request.fields['PhoneNumber'] =
-          (phoneNumber ?? '').trim();
-
-      request.fields['Bio'] =
-          (bio ?? '').trim();
-
-      // =====================================
+      // =========================================================
       // PROFILE IMAGE
-      // =====================================
+      // =========================================================
 
-      if (profileImage != null) {
+      if (profileImage != null &&
+          await profileImage.exists()) {
+        final String filePath = profileImage.path;
 
-        request.files.add(
+        final String resolvedMimeType =
+            lookupMimeType(filePath) ??
+                ImageHelper.getImageMimeType(
+                  filePath,
+                );
 
-          await http.MultipartFile.fromPath(
+        final List<String> mimeParts =
+        resolvedMimeType.split('/');
 
-            'profileImage',
+        final MediaType mediaType = MediaType(
+          mimeParts.first,
+          mimeParts.length > 1
+              ? mimeParts[1]
+              : 'jpeg',
+        );
 
-            profileImage.path,
-          ),
+        final String fileName =
+        profileImage.uri.pathSegments.isNotEmpty
+            ? profileImage
+            .uri
+            .pathSegments
+            .last
+            : 'profile_image.jpg';
+
+        final http.MultipartFile imageFile =
+        await http.MultipartFile.fromPath(
+          'profileImage',
+          filePath,
+          filename: fileName,
+          contentType: mediaType,
+        );
+
+        request.files.add(imageFile);
+
+        debugPrint(
+          'Profile Image Path: $filePath',
+        );
+
+        debugPrint(
+          'Profile Image File Name: $fileName',
+        );
+
+        debugPrint(
+          'Profile Image MIME Type: '
+              '$resolvedMimeType',
+        );
+
+        debugPrint(
+          'Profile Image Size: '
+              '${await profileImage.length()} bytes',
         );
       }
 
-      // =====================================
-      // HEADERS
-      // =====================================
+      request.headers.addAll(
+        <String, String>{
+          'Accept': 'application/json',
+        },
+      );
 
-      request.headers.addAll({
+      debugPrint(
+        '================================',
+      );
 
-        "Accept": "application/json",
-      });
+      debugPrint(
+        'REGISTRATION API URL: '
+            '${request.url}',
+      );
 
-      print("================================");
+      debugPrint(
+        'FIELDS: ${request.fields}',
+      );
 
-      print("REGISTRATION API URL: ${request.url}");
+      debugPrint(
+        'FILES COUNT: '
+            '${request.files.length}',
+      );
 
-      print("FIELDS: ${request.fields}");
+      debugPrint(
+        '================================',
+      );
 
-      print("================================");
+      final http.StreamedResponse streamedResponse =
+      await request.send().timeout(
+        const Duration(seconds: 60),
+      );
 
-      // =====================================
-      // API CALL
-      // =====================================
-
-      final streamedResponse =
-      await request.send();
-
-      final response =
+      final http.Response response =
       await http.Response.fromStream(
-          streamedResponse);
+        streamedResponse,
+      );
 
-      _setLoading(false);
+      debugPrint(
+        'STATUS CODE: '
+            '${response.statusCode}',
+      );
 
-      print("STATUS CODE: ${response.statusCode}");
+      debugPrint(
+        'RESPONSE BODY: '
+            '${response.body}',
+      );
 
-      print("RESPONSE BODY: ${response.body}");
-
-      // =====================================
-      // EMPTY RESPONSE
-      // =====================================
-
-      if (response.body.isEmpty) {
-
-        return {
-
-          "success": false,
-
-          "message":
-          "Empty response from server",
+      if (response.body.trim().isEmpty) {
+        return <String, dynamic>{
+          'success': false,
+          'message':
+          'Empty response from server.',
         };
       }
 
-      dynamic responseData;
-
-      // =====================================
-      // JSON DECODE
-      // =====================================
+      Map<String, dynamic> responseData;
 
       try {
+        final dynamic decodedData =
+        jsonDecode(response.body);
 
-        responseData =
-            jsonDecode(response.body);
-
-      } catch (e) {
-
-        return {
-
-          "success": false,
-
-          "message": response.body,
+        if (decodedData
+        is Map<String, dynamic>) {
+          responseData = decodedData;
+        } else if (decodedData is Map) {
+          responseData =
+          Map<String, dynamic>.from(
+            decodedData,
+          );
+        } else {
+          return <String, dynamic>{
+            'success': false,
+            'message':
+            'Invalid response from server.',
+          };
+        }
+      } on FormatException {
+        return <String, dynamic>{
+          'success': false,
+          'message': response.body,
         };
       }
 
-      // =====================================
-      // SUCCESS
-      // =====================================
-
-      if (response.statusCode == 200 ||
-          response.statusCode == 201) {
-
-        return {
-
-          "success": true,
-
-          "data": responseData,
+      if (response.statusCode >= 200 &&
+          response.statusCode < 300) {
+        return <String, dynamic>{
+          'success': true,
+          'message':
+          responseData['message']
+              ?.toString() ??
+              'Registration successful.',
+          'data': responseData,
         };
       }
 
-      // =====================================
-      // FAILED
-      // =====================================
-
-      return {
-
-        "success": false,
-
-        "message":
-        responseData["message"] ??
-            "Registration Failed",
+      return <String, dynamic>{
+        'success': false,
+        'message':
+        responseData['message']
+            ?.toString() ??
+            'Registration failed.',
+        'data': responseData,
       };
+    } on SocketException {
+      return <String, dynamic>{
+        'success': false,
+        'message':
+        'No internet connection. '
+            'Please check your network.',
+      };
+    } on TimeoutException {
+      return <String, dynamic>{
+        'success': false,
+        'message':
+        'Request timed out. '
+            'Please try again.',
+      };
+    } on FormatException {
+      return <String, dynamic>{
+        'success': false,
+        'message':
+        'Invalid response received '
+            'from server.',
+      };
+    } catch (error, stackTrace) {
+      debugPrint(
+        'Registration Error: $error',
+      );
 
-    } catch (e) {
+      debugPrintStack(
+        stackTrace: stackTrace,
+      );
 
+      return <String, dynamic>{
+        'success': false,
+        'message': error.toString(),
+      };
+    } finally {
       _setLoading(false);
-
-      return {
-
-        "success": false,
-
-        "message": e.toString(),
-      };
     }
   }
 

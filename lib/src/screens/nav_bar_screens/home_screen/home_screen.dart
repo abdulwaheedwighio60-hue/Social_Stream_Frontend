@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:social_stream/src/constants/app_images.dart';
 import 'package:social_stream/src/constants/colors.dart';
 import 'package:social_stream/src/screens/nav_bar_screens/home_screen/post_card_widget.dart';
+import 'package:social_stream/src/screens/nav_bar_screens/home_screen/widget/comment_bottom_sheet.dart';
+import 'package:social_stream/src/screens/notification/notification_screen.dart';
 import 'package:social_stream/src/services/post_provider.dart';
 import 'package:social_stream/src/utils/media_query.dart';
 import 'package:social_stream/src/widgets/custom_circle_icon_widget.dart';
@@ -73,6 +75,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
                     CustomCircleIconWidget(
                       icon: Iconsax.notification,
+                      onTap: (){
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => NotificationScreen()
+                            ),
+                        );
+                      },
                     ),
                   ],
                 ),
@@ -317,70 +327,64 @@ class _HomeScreenState extends State<HomeScreen> {
                       provider.posts[index];
 
                       return PostCardWidget(
-                        key: ValueKey<int>(post.id ?? index),
+                        key: ValueKey<int>(
+                          post.id ?? index,
+                        ),
 
-                        // POST ID
                         postId: post.id ?? 0,
 
-                        // USER
-                        userName: post.fullName ?? 'Social Stream User',
+                        userName:
+                        post.fullName ?? 'Social Stream User',
 
-                        userUsername: post.userName?.trim().isNotEmpty == true
+                        userUsername:
+                        post.userName?.trim().isNotEmpty == true
                             ? '@${post.userName}'
                             : '@user',
 
-                        userImage: post.profileImage ?? '',
+                        userImage:
+                        post.profileImage ?? '',
 
-                        // POST
-                        postImages: post.images ?? const [],
+                        postImages:
+                        post.images,
 
-                        caption: post.caption ?? '',
+                        caption:
+                        post.caption ?? '',
 
-                        location: post.addLocation ?? '',
+                        location:
+                        post.addLocation ?? '',
 
-                        likes: '8.5k',
+                        likes:
+                        post.likeCount,
 
-                        comments: '256',
+                        isLiked:
+                        post.isLiked,
 
-                        shares: '1.2k',
+                        comments:
+                        '0',
 
-                        isLiked: false,
+                        shares:
+                        '0',
 
-                        isVerified: true,
-
-                        isBookmarked: false,
-
-                        // Like API PostCardWidget ke andar call ho rahi hai.
-                        // Yeh callback sirf successful like ke baad chalega.
-                        onLikeTap: () {
-                          debugPrint(
-                            'Post ${post.id} liked successfully',
-                          );
+                        onLikeChanged: (
+                            bool isLiked,
+                            int likeCount,
+                            ) {
+                          post.isLiked = isLiked;
+                          post.likeCount = likeCount;
                         },
 
                         onCommentTap: () {
-                          debugPrint(
-                            'Comment clicked for post ${post.id}',
+                          CommentBottomSheet.show(
+                            context,
+                            postId: post.id ?? 0,
                           );
                         },
 
-                        onShareTap: () {
-                          debugPrint(
-                            'Share clicked for post ${post.id}',
-                          );
-                        },
+                        onShareTap: () {},
 
-                        onBookmarkTap: () {
-                          debugPrint(
-                            'Bookmark clicked for post ${post.id}',
-                          );
-                        },
+                        onBookmarkTap: () {},
 
-                        onMoreTap: () {
-                          debugPrint(
-                            'More options clicked for post ${post.id}',
-                          );
-                        },
+                        onMoreTap: () {},
                       );
                     },
                   );

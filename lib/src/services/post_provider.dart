@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:http/http.dart'
 as http;
+import 'package:http_parser/http_parser.dart';
+import 'package:mime/mime.dart';
 
 import '../models/post_model.dart';
 
@@ -114,17 +116,24 @@ class PostProvider
 
       // IMAGES
 
-      for (File image
-      in images) {
+      for (final File image in images) {
+        final String? mimeType = lookupMimeType(
+          image.path,
+        );
+
+        final List<String> mimeParts =
+        (mimeType ?? 'image/jpeg').split('/');
 
         request.files.add(
-
-          await http.MultipartFile
-              .fromPath(
-
-            "Images",
-
+          await http.MultipartFile.fromPath(
+            'Images',
             image.path,
+            contentType: MediaType(
+              mimeParts[0],
+              mimeParts.length > 1
+                  ? mimeParts[1]
+                  : 'jpeg',
+            ),
           ),
         );
       }

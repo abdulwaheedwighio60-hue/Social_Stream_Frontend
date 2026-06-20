@@ -87,21 +87,17 @@ class _CompleteProfileScreenState
   // =========================
   // PICK IMAGE
   // =========================
-  File? imageFile;
+  Future<void> pickProfileImage() async {
+    final File? image =
+    await CustomImagePicker.show(context);
 
-  void pickProfileImage() async {
-
-    File? image =
-    await CustomImagePicker.show(
-        context);
-
-    if (image != null) {
-
-      setState(() {
-
-        imageFile = image;
-      });
+    if (!mounted || image == null) {
+      return;
     }
+
+    setState(() {
+      selectedImage = image;
+    });
   }
 
   // =========================
@@ -129,8 +125,7 @@ class _CompleteProfileScreenState
 
       body: SafeArea(
         child: SingleChildScrollView(
-          physics:
-          const BouncingScrollPhysics(),
+          physics: const BouncingScrollPhysics(),
 
           child: Padding(
             padding: EdgeInsets.symmetric(
