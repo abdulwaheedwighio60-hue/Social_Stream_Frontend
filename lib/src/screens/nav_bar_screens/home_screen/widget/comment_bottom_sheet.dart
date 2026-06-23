@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:social_stream/src/constants/app_images.dart';
 import 'package:social_stream/src/constants/colors.dart';
 import 'package:social_stream/src/models/comment_model.dart';
+import 'package:social_stream/src/provider/user_detail_provider.dart';
 
 class CommentBottomSheet {
   static Future<void> show(
@@ -225,8 +227,8 @@ class _CommentsBottomSheetState
 
   @override
   Widget build(BuildContext context) {
-    final MediaQueryData mediaQuery =
-    MediaQuery.of(context);
+    final MediaQueryData mediaQuery = MediaQuery.of(context);
+    final userDetailProvider = Provider.of<UserDetailProvider>(context);
 
     return AnimatedPadding(
       duration: const Duration(
@@ -589,6 +591,8 @@ class _CommentsBottomSheetState
   // =========================================================
 
   Widget _buildCommentInput() {
+    final userDetailProvider = Provider.of<UserDetailProvider>(context);
+    final String? profileImage = userDetailProvider.user?.profileImage;
     return SafeArea(
       top: false,
       child: Container(
@@ -616,14 +620,16 @@ class _CommentsBottomSheetState
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           children: <Widget>[
-            const CircleAvatar(
+            CircleAvatar(
               radius: 19,
-              backgroundColor: Color(0xFFF1F2F4),
-              backgroundImage: AssetImage(
-                AppImages.userImage1,
+              backgroundColor: const Color(0xFFF1F2F4),
+              backgroundImage: profileImage != null &&
+                  profileImage.trim().isNotEmpty
+                  ? NetworkImage(profileImage)
+                  : const AssetImage(
+                'assets/images/user.png',
               ),
             ),
-
             const SizedBox(width: 10),
 
             Expanded(

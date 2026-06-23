@@ -3,6 +3,7 @@ import 'package:iconsax/iconsax.dart';
 import 'package:social_stream/src/constants/colors.dart';
 import 'package:social_stream/src/screens/help_center_screen/help_center_screen.dart';
 import 'package:social_stream/src/screens/payment_method_screen/payment_method_screen.dart';
+import 'package:social_stream/src/screens/privacy_polocy_screen/privacy_policy_screen.dart';
 import 'package:social_stream/src/widgets/custom_circle_icon_widget.dart';
 import 'package:social_stream/src/widgets/custom_text_widget.dart';
 
@@ -459,7 +460,13 @@ class _SettingScreenState extends State<SettingScreen> {
                   subtitle:
                   "Your data and privacy rights",
 
-                  onTap: () {},
+                  onTap: () {
+                    Navigator.push(
+                        context, MaterialPageRoute(
+                        builder: (context) => PrivacyPolicyScreen()
+                    ),
+                    );
+                  },
                 ),
 
                 _divider(),

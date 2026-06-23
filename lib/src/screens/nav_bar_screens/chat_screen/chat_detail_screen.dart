@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:iconsax/iconsax.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -113,6 +114,21 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
 
   final List<ChatMessageModel> messages = [];
 
+  /// Stores one selected reaction against each message id.
+  final Map<String, String> messageReactions = <String, String>{};
+
+  /// Keeps track of locally edited messages.
+  final Set<String> editedMessageIds = <String>{};
+
+  static const List<String> availableReactions = <String>[
+    '👍',
+    '❤️',
+    '😂',
+    '😮',
+    '😢',
+    '🙏',
+  ];
+
   bool isMessageEmpty = true;
   bool isRecording = false;
   bool isStoppingRecording = false;
@@ -214,6 +230,438 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
     // await chatProvider.sendTextMessage(
     //   receiverId: receiverId,
     //   message: message,
+    // );
+  }
+
+  // =====================================================
+  // MESSAGE LONG-PRESS ACTIONS
+  // =====================================================
+
+  Future<void> _showMessageActions(
+      ChatMessageModel message,
+      ) async {
+    await HapticFeedback.mediumImpact();
+
+    if (!mounted) {
+      return;
+    }
+
+    messageFocusNode.unfocus();
+
+    final String? selectedReaction =
+    messageReactions[message.id];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (BuildContext bottomSheetContext) {
+        return SafeArea(
+          top: false,
+          child: Container(
+            margin: const EdgeInsets.all(10),
+            padding: const EdgeInsets.fromLTRB(
+              16,
+              10,
+              16,
+              14,
+            ),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'React',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black54,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: const Color(0xffF5F6F8),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: availableReactions.map(
+                          (String reaction) {
+                        final bool isSelected =
+                            selectedReaction == reaction;
+
+                        return Material(
+                          color: isSelected
+                              ? AppColors.primary.withValues(alpha: 0.12)
+                              : Colors.transparent,
+                          shape: const CircleBorder(),
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: () {
+                              Navigator.pop(bottomSheetContext);
+                              _setMessageReaction(
+                                message: message,
+                                reaction: reaction,
+                              );
+                            },
+                            child: AnimatedScale(
+                              duration: const Duration(
+                                milliseconds: 160,
+                              ),
+                              scale: isSelected ? 1.15 : 1,
+                              child: SizedBox(
+                                width: 42,
+                                height: 42,
+                                child: Center(
+                                  child: Text(
+                                    reaction,
+                                    style: const TextStyle(
+                                      fontSize: 25,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ).toList(),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                if (message.isSentByMe &&
+                    message.type == ChatMessageType.text)
+                  _buildMessageActionTile(
+                    icon: Iconsax.edit_2,
+                    title: 'Edit message',
+                    onTap: () {
+                      Navigator.pop(bottomSheetContext);
+                      _editTextMessage(message);
+                    },
+                  ),
+                _buildMessageActionTile(
+                  icon: Iconsax.trash,
+                  title: message.isSentByMe
+                      ? 'Delete message'
+                      : 'Delete for me',
+                  color: Colors.red,
+                  onTap: () {
+                    Navigator.pop(bottomSheetContext);
+                    _confirmDeleteMessage(message);
+                  },
+                ),
+                _buildMessageActionTile(
+                  icon: Icons.close_rounded,
+                  title: 'Cancel',
+                  onTap: () {
+                    Navigator.pop(bottomSheetContext);
+                  },
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildMessageActionTile({
+    required IconData icon,
+    required String title,
+    required VoidCallback onTap,
+    Color color = Colors.black87,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 4,
+            vertical: 12,
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.08),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(
+                  icon,
+                  size: 19,
+                  color: color,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w500,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _setMessageReaction({
+    required ChatMessageModel message,
+    required String reaction,
+  }) {
+    final bool messageStillExists = messages.any(
+          (ChatMessageModel item) => item.id == message.id,
+    );
+
+    if (!messageStillExists) {
+      return;
+    }
+
+    setState(() {
+      if (messageReactions[message.id] == reaction) {
+        messageReactions.remove(message.id);
+      } else {
+        messageReactions[message.id] = reaction;
+      }
+    });
+
+    // API/socket example:
+    // await chatProvider.reactToMessage(
+    //   messageId: message.id,
+    //   reaction: messageReactions[message.id],
+    // );
+  }
+
+  Future<void> _editTextMessage(
+      ChatMessageModel message,
+      ) async {
+    if (!message.isSentByMe ||
+        message.type != ChatMessageType.text) {
+      return;
+    }
+
+    final TextEditingController editController =
+    TextEditingController(text: message.text ?? '');
+
+    final String? updatedText = await showDialog<String>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text(
+            'Edit message',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          content: TextField(
+            controller: editController,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 5,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: InputDecoration(
+              hintText: 'Write your message',
+              filled: true,
+              fillColor: const Color(0xffF5F6F8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(14),
+                borderSide: BorderSide.none,
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: AppColors.primary,
+              ),
+              onPressed: () {
+                Navigator.pop(
+                  dialogContext,
+                  editController.text.trim(),
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        );
+      },
+    );
+
+    editController.dispose();
+
+    if (!mounted || updatedText == null) {
+      return;
+    }
+
+    if (updatedText.isEmpty) {
+      _showMessage(
+        'Message cannot be empty.',
+        isError: true,
+      );
+      return;
+    }
+
+    final int messageIndex = messages.indexWhere(
+          (ChatMessageModel item) => item.id == message.id,
+    );
+
+    if (messageIndex < 0) {
+      return;
+    }
+
+    final ChatMessageModel currentMessage =
+    messages[messageIndex];
+
+    if (currentMessage.text == updatedText) {
+      return;
+    }
+
+    setState(() {
+      messages[messageIndex] = ChatMessageModel(
+        id: currentMessage.id,
+        type: currentMessage.type,
+        isSentByMe: currentMessage.isSentByMe,
+        createdAt: currentMessage.createdAt,
+        text: updatedText,
+        audioPath: currentMessage.audioPath,
+        audioDuration: currentMessage.audioDuration,
+        imagePath: currentMessage.imagePath,
+      );
+
+      editedMessageIds.add(currentMessage.id);
+    });
+
+    _showMessage('Message updated.');
+
+    // API/socket example:
+    // await chatProvider.editMessage(
+    //   messageId: currentMessage.id,
+    //   message: updatedText,
+    // );
+  }
+
+  Future<void> _confirmDeleteMessage(
+      ChatMessageModel message,
+      ) async {
+    final bool? shouldDelete = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Text('Delete message?'),
+          content: Text(
+            message.isSentByMe
+                ? 'This message will be removed from the conversation.'
+                : 'This message will be removed from your chat.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(dialogContext, false);
+              },
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: Colors.red,
+              ),
+              onPressed: () {
+                Navigator.pop(dialogContext, true);
+              },
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || shouldDelete != true) {
+      return;
+    }
+
+    final int messageIndex = messages.indexWhere(
+          (ChatMessageModel item) => item.id == message.id,
+    );
+
+    if (messageIndex < 0) {
+      return;
+    }
+
+    final ChatMessageModel deletedMessage =
+    messages[messageIndex];
+
+    setState(() {
+      messages.removeAt(messageIndex);
+      messageReactions.remove(deletedMessage.id);
+      editedMessageIds.remove(deletedMessage.id);
+    });
+
+    if (deletedMessage.isSentByMe &&
+        deletedMessage.type == ChatMessageType.audio &&
+        deletedMessage.audioPath != null) {
+      try {
+        final File audioFile = File(deletedMessage.audioPath!);
+
+        if (await audioFile.exists()) {
+          await audioFile.delete();
+        }
+      } catch (error) {
+        debugPrint('Unable to delete local audio file: $error');
+      }
+    }
+
+    _showMessage('Message deleted.');
+
+    // API/socket example:
+    // await chatProvider.deleteMessage(
+    //   messageId: deletedMessage.id,
+    //   deleteForEveryone: deletedMessage.isSentByMe,
     // );
   }
 
@@ -605,44 +1053,98 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Widget _buildMessageItem(
       ChatMessageModel message,
       ) {
+    final Widget messageBubble;
+
     switch (message.type) {
       case ChatMessageType.text:
-        return message.isSentByMe
+        messageBubble = message.isSentByMe
             ? _buildSentMessage(
           message: message.text ?? '',
-          time: _formatMessageTime(
-            message.createdAt,
-          ),
+          time: _formatMessageTime(message.createdAt),
+          isEdited: editedMessageIds.contains(message.id),
         )
             : _buildReceivedMessage(
           message: message.text ?? '',
-          time: _formatMessageTime(
-            message.createdAt,
-          ),
+          time: _formatMessageTime(message.createdAt),
         );
+        break;
 
       case ChatMessageType.audio:
-        return AudioMessageBubble(
+        messageBubble = AudioMessageBubble(
           audioPath: message.audioPath ?? '',
-          duration:
-          message.audioDuration ??
-              Duration.zero,
-          time: _formatMessageTime(
-            message.createdAt,
-          ),
+          duration: message.audioDuration ?? Duration.zero,
+          time: _formatMessageTime(message.createdAt),
           isSentByMe: message.isSentByMe,
           userName: widget.userName,
           userImage: widget.userImage,
         );
+        break;
 
       case ChatMessageType.image:
-        return _buildReceivedImageMessage(
+        messageBubble = _buildReceivedImageMessage(
           imagePath: message.imagePath ?? '',
-          time: _formatMessageTime(
-            message.createdAt,
-          ),
+          time: _formatMessageTime(message.createdAt),
         );
+        break;
     }
+
+    final String? reaction = messageReactions[message.id];
+
+    return GestureDetector(
+      key: ValueKey<String>(message.id),
+      behavior: HitTestBehavior.translucent,
+      onLongPress: () {
+        _showMessageActions(message);
+      },
+      child: Column(
+        crossAxisAlignment: message.isSentByMe
+            ? CrossAxisAlignment.end
+            : CrossAxisAlignment.start,
+        children: [
+          messageBubble,
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            transitionBuilder: (
+                Widget child,
+                Animation<double> animation,
+                ) {
+              return ScaleTransition(
+                scale: animation,
+                child: child,
+              );
+            },
+            child: reaction == null
+                ? const SizedBox.shrink()
+                : Container(
+              key: ValueKey<String>(reaction),
+              margin: const EdgeInsets.only(top: 5),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 9,
+                vertical: 4,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(
+                  color: Colors.grey.withValues(alpha: 0.16),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.06),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Text(
+                reaction,
+                style: const TextStyle(fontSize: 17),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   // =====================================================
@@ -1322,6 +1824,7 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
   Widget _buildSentMessage({
     required String message,
     required String time,
+    required bool isEdited,
   }) {
     return Column(
       crossAxisAlignment:
@@ -1363,6 +1866,17 @@ class _ChatDetailScreenState extends State<ChatDetailScreen> {
           mainAxisAlignment:
           MainAxisAlignment.end,
           children: [
+            if (isEdited) ...[
+              const Text(
+                'Edited',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontStyle: FontStyle.italic,
+                  color: Colors.black38,
+                ),
+              ),
+              const SizedBox(width: 7),
+            ],
             Text(
               time,
               style: const TextStyle(

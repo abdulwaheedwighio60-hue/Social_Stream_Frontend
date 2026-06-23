@@ -27,7 +27,15 @@ class PostCardWidget extends StatefulWidget {
   final bool isLiked;
   final bool isBookmarked;
 
+  // Post current logged-in user ki hai ya nahi.
+  final bool isPostOwner;
+
+  // Non-owner post ke extra options ke liye.
   final VoidCallback? onMoreTap;
+
+  // Owner options.
+  final Future<void> Function()? onEditPost;
+  final Future<void> Function()? onDeletePost;
 
   final void Function(
       bool isLiked,
@@ -53,7 +61,10 @@ class PostCardWidget extends StatefulWidget {
     this.isVerified = true,
     this.isLiked = false,
     this.isBookmarked = false,
+    this.isPostOwner = false,
     this.onMoreTap,
+    this.onEditPost,
+    this.onDeletePost,
     this.onLikeChanged,
     this.onCommentTap,
     this.onShareTap,
@@ -65,13 +76,15 @@ class PostCardWidget extends StatefulWidget {
       _PostCardWidgetState();
 }
 
-class _PostCardWidgetState
-    extends State<PostCardWidget> {
+class _PostCardWidgetState extends State<PostCardWidget> {
   late final PageController _pageController;
 
   late bool _isLiked;
   late bool _isBookmarked;
   late int _likeCount;
+
+  bool _isDeleting = false;
+  bool _isEditing = false;
 
   int _currentImageIndex = 0;
 
@@ -105,7 +118,9 @@ class _PostCardWidgetState
       _isBookmarked = widget.isBookmarked;
     }
 
-    if (_currentImageIndex >=
+    if (widget.postImages.isEmpty) {
+      _currentImageIndex = 0;
+    } else if (_currentImageIndex >=
         widget.postImages.length) {
       _currentImageIndex = 0;
 
@@ -119,6 +134,493 @@ class _PostCardWidgetState
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+
+  // =========================================================
+  // MORE OPTIONS
+  // =========================================================
+
+  void _handleMoreTap() {
+    if (_isDeleting || _isEditing) {
+      return;
+    }
+
+    final bool hasOwnerOptions =
+        widget.onEditPost != null ||
+            widget.onDeletePost != null;
+
+    if (widget.isPostOwner && hasOwnerOptions) {
+      _showPostOptionsBottomSheet();
+      return;
+    }
+
+    widget.onMoreTap?.call();
+  }
+
+  Future<void> _showPostOptionsBottomSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      barrierColor: Colors.black54,
+      isScrollControlled: true,
+      builder: (BuildContext sheetContext) {
+        return Container(
+          margin: const EdgeInsets.all(10),
+          padding: const EdgeInsets.fromLTRB(
+            16,
+            10,
+            16,
+            18,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(26),
+            boxShadow: <BoxShadow>[
+              BoxShadow(
+                color: Colors.black.withOpacity(0.12),
+                blurRadius: 25,
+                offset: const Offset(0, -4),
+              ),
+            ],
+          ),
+          child: SafeArea(
+            top: false,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(
+                  width: 42,
+                  height: 5,
+                  margin: const EdgeInsets.only(
+                    bottom: 18,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                ),
+
+                Row(
+                  children: <Widget>[
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: AppColors.primary.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: const Icon(
+                        Icons.tune_rounded,
+                        color: AppColors.primary,
+                        size: 23,
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    const Expanded(
+                      child: Column(
+                        crossAxisAlignment:
+                        CrossAxisAlignment.start,
+                        children: <Widget>[
+                          Text(
+                            'Post options',
+                            style: TextStyle(
+                              color: Colors.black87,
+                              fontSize: 17,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Manage your post',
+                            style: TextStyle(
+                              color: Colors.black54,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    IconButton(
+                      onPressed: () {
+                        Navigator.of(sheetContext).pop();
+                      },
+                      icon: const Icon(
+                        Icons.close_rounded,
+                        color: Colors.black54,
+                      ),
+                    ),
+                  ],
+                ),
+
+                const SizedBox(height: 18),
+
+                if (widget.onEditPost != null)
+                  _buildPostOptionTile(
+                    icon: Icons.edit_outlined,
+                    iconBackgroundColor:
+                    AppColors.primary.withOpacity(0.10),
+                    iconColor: AppColors.primary,
+                    title: 'Edit post',
+                    subtitle:
+                    'Update caption, location or images',
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+
+                      Future<void>.delayed(
+                        const Duration(milliseconds: 180),
+                        _handleEditPost,
+                      );
+                    },
+                  ),
+
+                if (widget.onEditPost != null &&
+                    widget.onDeletePost != null)
+                  const SizedBox(height: 10),
+
+                if (widget.onDeletePost != null)
+                  _buildPostOptionTile(
+                    icon: Icons.delete_outline_rounded,
+                    iconBackgroundColor:
+                    Colors.red.withOpacity(0.09),
+                    iconColor: Colors.red.shade600,
+                    title: 'Delete post',
+                    subtitle:
+                    'Permanently remove this post',
+                    titleColor: Colors.red.shade700,
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+
+                      Future<void>.delayed(
+                        const Duration(milliseconds: 180),
+                        _handleDeletePost,
+                      );
+                    },
+                  ),
+
+                const SizedBox(height: 14),
+
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: OutlinedButton(
+                    onPressed: () {
+                      Navigator.of(sheetContext).pop();
+                    },
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.black87,
+                      side: BorderSide(
+                        color: Colors.grey.shade300,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius:
+                        BorderRadius.circular(15),
+                      ),
+                    ),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildPostOptionTile({
+    required IconData icon,
+    required Color iconBackgroundColor,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    required VoidCallback onTap,
+    Color titleColor = Colors.black87,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 12,
+          ),
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: Colors.grey.shade200,
+            ),
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: <Widget>[
+              Container(
+                width: 46,
+                height: 46,
+                decoration: BoxDecoration(
+                  color: iconBackgroundColor,
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: iconColor,
+                  size: 23,
+                ),
+              ),
+
+              const SizedBox(width: 13),
+
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                  CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: titleColor,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+
+                    const SizedBox(height: 3),
+
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              Icon(
+                Icons.arrow_forward_ios_rounded,
+                color: Colors.grey.shade400,
+                size: 16,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // =========================================================
+  // EDIT POST
+  // =========================================================
+
+  Future<void> _handleEditPost() async {
+    if (widget.onEditPost == null || _isEditing) {
+      return;
+    }
+
+    setState(() {
+      _isEditing = true;
+    });
+
+    try {
+      await widget.onEditPost!.call();
+    } catch (error) {
+      if (!mounted) return;
+
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to open post editing.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isEditing = false;
+        });
+      }
+    }
+  }
+
+  // =========================================================
+  // DELETE POST
+  // =========================================================
+
+  Future<void> _handleDeletePost() async {
+    if (widget.onDeletePost == null || _isDeleting) {
+      return;
+    }
+
+    final bool? shouldDelete =
+    await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: const EdgeInsets.symmetric(
+            horizontal: 28,
+          ),
+          child: Container(
+            padding: const EdgeInsets.all(22),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Container(
+                  width: 62,
+                  height: 62,
+                  decoration: BoxDecoration(
+                    color: Colors.red.withOpacity(0.09),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    Icons.delete_outline_rounded,
+                    color: Colors.red.shade600,
+                    size: 31,
+                  ),
+                ),
+
+                const SizedBox(height: 18),
+
+                const Text(
+                  'Delete this post?',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.black87,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+
+                const SizedBox(height: 9),
+
+                Text(
+                  'This action cannot be undone. '
+                      'The post and its related content '
+                      'will be permanently removed.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                    height: 1.45,
+                  ),
+                ),
+
+                const SizedBox(height: 22),
+
+                Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: SizedBox(
+                        height: 47,
+                        child: OutlinedButton(
+                          onPressed: () {
+                            Navigator.of(dialogContext)
+                                .pop(false);
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor:
+                            Colors.black87,
+                            side: BorderSide(
+                              color:
+                              Colors.grey.shade300,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                              BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(
+                              fontWeight:
+                              FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 11),
+
+                    Expanded(
+                      child: SizedBox(
+                        height: 47,
+                        child: ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.of(dialogContext)
+                                .pop(true);
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor:
+                            Colors.red.shade600,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius:
+                              BorderRadius.circular(14),
+                            ),
+                          ),
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                            size: 19,
+                          ),
+                          label: const Text(
+                            'Delete',
+                            style: TextStyle(
+                              fontWeight:
+                              FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (shouldDelete != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _isDeleting = true;
+    });
+
+    try {
+      await widget.onDeletePost!.call();
+    } catch (error) {
+      if (!mounted) return;
+
+      AppSnackBar.showError(
+        context,
+        message: 'Failed to delete post.',
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isDeleting = false;
+        });
+      }
+    }
   }
 
   // =========================================================
@@ -156,7 +658,6 @@ class _PostCardWidgetState
 
     final bool nextIsLiked = !_isLiked;
 
-    // Optimistic UI update
     setState(() {
       _isLiked = nextIsLiked;
 
@@ -192,7 +693,6 @@ class _PostCardWidgetState
       return;
     }
 
-    // Backend actual state
     setState(() {
       _isLiked = result.isLiked;
       _likeCount = result.likeCount;
@@ -260,18 +760,75 @@ class _PostCardWidgetState
           color: Colors.black.withOpacity(0.05),
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildPostHeader(textTheme),
+      child: Stack(
+        children: <Widget>[
+          AbsorbPointer(
+            absorbing: _isDeleting,
+            child: Column(
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
+              children: <Widget>[
+                _buildPostHeader(textTheme),
 
-          if (widget.caption.trim().isNotEmpty)
-            _buildCaption(textTheme),
+                if (widget.caption.trim().isNotEmpty)
+                  _buildCaption(textTheme),
 
-          if (widget.postImages.isNotEmpty)
-            _buildPostImages(),
+                if (widget.postImages.isNotEmpty)
+                  _buildPostImages(),
 
-          _buildActionSection(),
+                _buildActionSection(),
+              ],
+            ),
+          ),
+
+          if (_isDeleting)
+            Positioned.fill(
+              child: Container(
+                color: Colors.white.withOpacity(0.75),
+                alignment: Alignment.center,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 14,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                    BorderRadius.circular(16),
+                    boxShadow: <BoxShadow>[
+                      BoxShadow(
+                        color:
+                        Colors.black.withOpacity(0.10),
+                        blurRadius: 15,
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: <Widget>[
+                      SizedBox(
+                        width: 20,
+                        height: 20,
+                        child:
+                        CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.red,
+                        ),
+                      ),
+                      SizedBox(width: 11),
+                      Text(
+                        'Deleting post...',
+                        style: TextStyle(
+                          color: Colors.black87,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -282,6 +839,10 @@ class _PostCardWidgetState
   // =========================================================
 
   Widget _buildPostHeader(TextTheme textTheme) {
+    final bool showMoreButton =
+        widget.isPostOwner ||
+            widget.onMoreTap != null;
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(
         14,
@@ -290,31 +851,35 @@ class _PostCardWidgetState
         12,
       ),
       child: Row(
-        children: [
+        children: <Widget>[
           _buildProfileImage(),
 
           const SizedBox(width: 11),
 
           Expanded(
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+              crossAxisAlignment:
+              CrossAxisAlignment.start,
+              children: <Widget>[
                 Row(
-                  children: [
+                  children: <Widget>[
                     Flexible(
                       child: Text(
                         widget.userName,
                         maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: textTheme.titleMedium?.copyWith(
+                        overflow:
+                        TextOverflow.ellipsis,
+                        style:
+                        textTheme.titleMedium?.copyWith(
                           color: Colors.black87,
                           fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                          fontWeight:
+                          FontWeight.w700,
                         ),
                       ),
                     ),
 
-                    if (widget.isVerified) ...[
+                    if (widget.isVerified) ...<Widget>[
                       const SizedBox(width: 4),
                       const Icon(
                         Icons.verified_rounded,
@@ -338,11 +903,13 @@ class _PostCardWidgetState
                   ),
                 ),
 
-                if (widget.location.trim().isNotEmpty) ...[
+                if (widget.location
+                    .trim()
+                    .isNotEmpty) ...<Widget>[
                   const SizedBox(height: 3),
 
                   Row(
-                    children: [
+                    children: <Widget>[
                       Icon(
                         Icons.location_on_outlined,
                         size: 13,
@@ -355,8 +922,10 @@ class _PostCardWidgetState
                         child: Text(
                           widget.location,
                           maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: textTheme.bodySmall?.copyWith(
+                          overflow:
+                          TextOverflow.ellipsis,
+                          style:
+                          textTheme.bodySmall?.copyWith(
                             color: Colors.grey.shade600,
                             fontSize: 11,
                           ),
@@ -369,15 +938,29 @@ class _PostCardWidgetState
             ),
           ),
 
-          IconButton(
-            onPressed: widget.onMoreTap,
-            splashRadius: 22,
-            icon: const Icon(
-              Icons.more_horiz_rounded,
-              size: 25,
-              color: Colors.black87,
+          if (showMoreButton)
+            IconButton(
+              onPressed:
+              _isDeleting || _isEditing
+                  ? null
+                  : _handleMoreTap,
+              splashRadius: 22,
+              tooltip: 'Post options',
+              icon: _isEditing
+                  ? const SizedBox(
+                width: 21,
+                height: 21,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.primary,
+                ),
+              )
+                  : const Icon(
+                Icons.more_horiz_rounded,
+                size: 25,
+                color: Colors.black87,
+              ),
             ),
-          ),
         ],
       ),
     );
@@ -420,7 +1003,8 @@ class _PostCardWidgetState
               child: SizedBox(
                 width: 17,
                 height: 17,
-                child: CircularProgressIndicator(
+                child:
+                CircularProgressIndicator(
                   strokeWidth: 1.8,
                   color: AppColors.primary,
                 ),
@@ -477,7 +1061,7 @@ class _PostCardWidgetState
       ),
       child: Text.rich(
         TextSpan(
-          children: [
+          children: <InlineSpan>[
             TextSpan(
               text: '${widget.userUsername} ',
               style: textTheme.bodyMedium?.copyWith(
@@ -506,13 +1090,14 @@ class _PostCardWidgetState
   Widget _buildPostImages() {
     return Stack(
       alignment: Alignment.bottomCenter,
-      children: [
+      children: <Widget>[
         AspectRatio(
           aspectRatio: 1.05,
           child: PageView.builder(
             controller: _pageController,
             itemCount: widget.postImages.length,
-            physics: const BouncingScrollPhysics(),
+            physics:
+            const BouncingScrollPhysics(),
             onPageChanged: (int index) {
               setState(() {
                 _currentImageIndex = index;
@@ -536,7 +1121,8 @@ class _PostCardWidgetState
                   }
 
                   return const Center(
-                    child: CircularProgressIndicator(
+                    child:
+                    CircularProgressIndicator(
                       color: AppColors.primary,
                     ),
                   );
@@ -571,7 +1157,8 @@ class _PostCardWidgetState
               ),
               decoration: BoxDecoration(
                 color: Colors.black54,
-                borderRadius: BorderRadius.circular(30),
+                borderRadius:
+                BorderRadius.circular(30),
               ),
               child: Text(
                 '${_currentImageIndex + 1}/'
@@ -590,7 +1177,7 @@ class _PostCardWidgetState
             bottom: 12,
             child: Row(
               mainAxisSize: MainAxisSize.min,
-              children: List.generate(
+              children: List<Widget>.generate(
                 widget.postImages.length,
                     (int index) {
                   final bool selected =
@@ -600,7 +1187,8 @@ class _PostCardWidgetState
                     duration: const Duration(
                       milliseconds: 250,
                     ),
-                    margin: const EdgeInsets.symmetric(
+                    margin:
+                    const EdgeInsets.symmetric(
                       horizontal: 3,
                     ),
                     width: selected ? 16 : 6,
@@ -642,14 +1230,15 @@ class _PostCardWidgetState
         10,
       ),
       child: Row(
-        children: [
+        children: <Widget>[
           _buildActionButton(
             icon: _isLiked
                 ? Icons.favorite_rounded
                 : Iconsax.heart,
             label: _formatCount(_likeCount),
-            color:
-            _isLiked ? Colors.red : Colors.black87,
+            color: _isLiked
+                ? Colors.red
+                : Colors.black87,
             onTap: isLikeLoading
                 ? null
                 : _handleLikeTap,
@@ -707,12 +1296,13 @@ class _PostCardWidgetState
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
-            children: [
+            children: <Widget>[
               if (isLoading)
                 const SizedBox(
                   width: 20,
                   height: 20,
-                  child: CircularProgressIndicator(
+                  child:
+                  CircularProgressIndicator(
                     strokeWidth: 2,
                     color: AppColors.primary,
                   ),
